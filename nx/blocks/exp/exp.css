@@ -1,0 +1,21 @@
+.nx-exp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0 12px 46px;
+}
+
+h1 {
+  display: none;
+  font-size: 16px;
+  line-height: 1;
+  margin: 0;
+}
+
+h1:has(+ [data-loaded]) {
+  display: unset;
+}
+
+nx-profile {
+  margin-right: 12px;
+}
