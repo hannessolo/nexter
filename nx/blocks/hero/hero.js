@@ -18,6 +18,6 @@ export default async function init(el) {
   if (localStorage.getItem('nx-ims') && pzn) await personalize(fg);
   if (rows.length) {
     const bg = rows.pop();
-    bg.classList.add('nx-hero-background');
+    bg.classList.add('nx-hero-background jfalksdfjalkdsfjalsdfk');
   }
 }
