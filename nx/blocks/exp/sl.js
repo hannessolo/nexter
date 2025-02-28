@@ -55,9 +55,9 @@ class SlSelect extends LitElement {
     return html`
       <slot @slotchange=${this.handleSlotchange}></slot>
       <div class="sl-inputfield">
-        <label for="nx-input-exp-opt-for">Optimizing for</label>
+        <label for="nx-input-${this.name}">${this.label}</label>
         <div class="sl-inputfield-select-wrapper">
-          <select id="nx-input-exp-opt-for" @change=${this.handleChange}> </select>
+          <select id="nx-input-${this.name}" @change=${this.handleChange}> </select>
         </div>
       </div>
     `;

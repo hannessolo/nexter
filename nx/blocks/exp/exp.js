@@ -56,7 +56,11 @@ class NxExp extends LitElement {
   }
 
   handleTypeChange() {
-    console.log('Hello');
+    console.log('Change Type');
+  }
+
+  handleOptForChange() {
+    console.log('Change Opt For');
   }
 
   handleOpen(e, idx) {
@@ -148,21 +152,16 @@ class NxExp extends LitElement {
 
 
         <div class="sl-fieldgroup sl-fieldgroup-two-up nx-space-bottom-300">
-          <sl-select @change=${this.handleTypeChange}>
+          <sl-select name="type" label="Type" @change=${this.handleTypeChange}>
             <option>A/B test</option>
             <option>MAB</option>
           </sl-select>
 
-          <div class="sl-inputfield">
-            <label for="nx-input-exp-opt-for">Optimizing for</label>
-            <div class="sl-inputfield-select-wrapper">
-              <select id="nx-input-exp-opt-for">
-                <option>Overall conversion</option>
-                <option>Form submission</option>
-                <option>Engagement</option>
-              </select>
-            </div>
-          </div>
+          <sl-select name="opt-for" label="Optimizing For" @change=${this.handleOptForChange}>
+            <option>Overall conversion</option>
+            <option>Form submission</option>
+            <option>Engagement</option>
+          </sl-select>
         </div>
         <hr class="sl-rule"></div>
         ${this.renderVariants()}
