@@ -1,84 +1,147 @@
+// eslint-disable-next-line import/no-unresolved
 import { LitElement, html, nothing } from 'da-lit';
-import { getConfig } from '../../scripts/nexter.js';
+import { getConfig, loadStyle } from '../../scripts/nexter.js';
 import getStyle from '../../utils/styles.js';
 import getSvg from '../../utils/svg.js';
+import {
+  getDefaultData,
+  getAbb,
+  processDetails,
+  toColor,
+  getErrors,
+  saveDetails,
+} from './utils.js';
 
-import './sl.js';
+import '../../public/sl/components.js';
 import '../profile/profile.js';
 
 const { nxBase } = getConfig();
 
-const style = await getStyle(import.meta.url);
+document.body.style = 'height: 600px; overflow: hidden;';
+const sl = await getStyle(`${nxBase}/public/sl/styles.css`);
+const exp = await getStyle(import.meta.url);
 
-const ICONS = [
-  `${nxBase}/img/icons/S2IconUsersNo20N-icon.svg`,
-];
-
-/* eslint-disable no-bitwise */
-const stringToColour = (str) => {
-  let hash = 0;
-  str.split('').forEach((char) => {
-    hash = char.charCodeAt(0) + ((hash << 5) - hash);
-  });
-  let colour = '#';
-  for (let i = 0; i < 3; i += 1) {
-    const value = (hash >> (i * 8)) & 0xff;
-    colour += value.toString(16).padStart(2, '0');
-  }
-  return colour;
-};
-/* eslint-enable no-bitwise */
-
-function calcAbbrev(name) {
-  const [cap, lower] = name.slice(0, 2).split('');
-  return `${cap.toUpperCase()}${lower}`;
-}
+const ICONS = [`${nxBase}/public/icons/S2_Icon_Add_20_N.svg`];
 
 class NxExp extends LitElement {
   static properties = {
-    _loaded: { state: true },
+    port: { attribute: false },
+    _ims: { state: true },
+    _connected: { state: true },
+    _page: { state: true },
     _details: { state: true },
+    _errors: { state: true },
+    _status: { state: true },
   };
 
   async connectedCallback() {
     super.connectedCallback();
     getSvg({ parent: this.shadowRoot, paths: ICONS });
-    this.shadowRoot.adoptedStyleSheets = [style];
-    this._details = (await import('./data-model.js')).default;
+    this.shadowRoot.adoptedStyleSheets = [sl, exp];
+  }
+
+  update(props) {
+    if (props.has('port') && this.port) {
+      // Post a message saying this side is ready.
+      this.port.postMessage({ ready: true });
+      // Wait for more messages from the other side.
+      this.port.onmessage = (e) => { this.handleMessage(e); };
+    }
+    super.update();
+  }
+
+  async handleMessage({ data }) {
+    if (data.experiment) this._details = processDetails(data.experiment);
+    if (data.page) this._page = data.page;
+    this._connected = true;
   }
 
   handleProfileLoad() {
-    this._loaded = true;
+    this._ims = true;
   }
 
-  async handleNew() {
-    this._details = (await import('./data-model.js')).default;
+  setStatus(text, type) {
+    if (!text) {
+      this._status = null;
+    } else {
+      this._status = { text, type };
+    }
+    this.requestUpdate();
   }
 
-  handleTypeChange() {
-    console.log('Change Type');
+  async handleNewExp() {
+    const experiment = getDefaultData(this._page);
+    this._details = processDetails(experiment);
+    this.requestUpdate();
   }
 
-  handleOptForChange() {
-    console.log('Change Opt For');
+  async handleNewVariant(e) {
+    e.preventDefault();
+    this._details.variants.push({});
+    this._details = processDetails(this._details);
+    this.requestUpdate();
   }
 
   handleOpen(e, idx) {
     e.preventDefault();
-    // Close if already open
-    console.log(this._details);
-
-    const isOpen = this._details.variants[idx].open;
-    if (isOpen) {
-      this._details.variants[idx].open = false;
-    } else {
-      // Loop through all and close
-      this._details.variants.forEach((variant) => {
-        variant.open = false;
-      });
-      this._details.variants[idx].open = true;
-    }
+    this._details.variants.forEach((variant, index) => {
+      variant.open = idx === index ? !variant.open : false;
+    });
     this.requestUpdate();
+  }
+
+  handleDelete(idx) {
+    if (idx === 0) return;
+    this._details.variants.splice(idx, 1);
+    this.requestUpdate();
+  }
+
+  handleBack(e) {
+    e.preventDefault();
+    this._details = null;
+  }
+
+  handleNameInput(e) {
+    this._details.name = e.target.value.replaceAll(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+    this.requestUpdate();
+  }
+
+  handleSelectChange(e, prop) {
+    this._details[prop] = e.target.value;
+  }
+
+  handlePercentInput(e, idx) {
+    this._details.variants[idx].percent = e.target.value;
+    this.requestUpdate();
+  }
+
+  handleUrlInput(e, idx) {
+    this._details.variants[idx].url = e.target.value;
+    this.requestUpdate();
+  }
+
+  handleDateChange(e, name) {
+    this._details[name] = e.target.value;
+  }
+
+  async handlePublish(e) {
+    e.preventDefault();
+    this._errors = getErrors(this._details);
+    if (this._errors) {
+      this.setStatus('Please fix errors.', 'error');
+      return;
+    }
+
+    // Bind to this so it can be called outside the class
+    const setStatus = this.setStatus.bind(this);
+    const result = await saveDetails(this._page, this._details, setStatus);
+    if (result.status !== 'ok') return;
+    this.port.postMessage({ reload: true });
+  }
+
+  get _placeholder() {
+    return `${this._page.origin}/experiments/
+      ${this._details.name ? `${this._details.name}/` : ''}...`;
   }
 
   renderHeader() {
@@ -90,100 +153,197 @@ class NxExp extends LitElement {
     `;
   }
 
-  renderNew() {
+  renderNone() {
     return html`
       <div class="nx-new-wrapper">
         <div class="nx-new">
-          <img src="${nxBase}/img/icons/S2IconUsersNo20N-icon.svg" alt="" class="nx-new-icon" />
-          <h2 class="spectrum-Heading spectrum-Heading--sizeS">No experiments on this page</h2>
-          <p class="spectrum-Body spectrum-Body--sizeS nx-new-body">
+          <img
+            alt=""
+            src="${nxBase}/img/icons/S2IconUsersNo20N-icon.svg"
+            class="nx-new-icon nx-space-bottom-200" />
+          <p class="sl-heading-m nx-space-bottom-100">No experiments on this page.</p>
+          <p class="sl-body-xs nx-space-bottom-300">
             Create a new experiment to start optimizing your web page.
           </p>
-          <sp-button-group class="nx-new-buttons">
-            <sp-button variant="secondary">View docs</sp-button>
-            <sp-button @click=${this.handleNew}>Create new</sp-button>
-          </sp-button-group>
+          <div class="nx-new-action-area">
+            <sl-button @click=${this.handleNewExp}>Create new</sl-button>
+          </div>
         </div>
       </div>
     `;
   }
 
-  renderVariants() {
+  renderVariant(variant, idx) {
+    const error = this._errors?.variants?.[idx].error;
+    const isControl = idx === 0;
+    const percent = variant.percent || 0;
+
     return html`
-      <h2 class="spectrum-Heading spectrum-Heading--sizeXS nx-space-bottom-200">Variants</h2>
-      <ul class="nx-variants-list nx-space-bottom-300">
-        ${this._details.variants.map((variant, idx) => html`
-          <li class="${variant.open ? 'is-open' : ''}">
-            <span style="background: ${stringToColour(variant.name)}">
-              ${calcAbbrev(variant.name)}
-            </span>
-            <p>${variant.name}</p>
-            <div class="sl-inputfield">
-              <input type="range" id="split" name="volume" min="0" max="100" />
-            </div>
-            <button @click=${(e) => this.handleOpen(e, idx)} class="sl-button sl-button-icon-only nx-exp-btn-more">Details</button>
-          </li>
-        `)}
-      </ul>
+      <li class="${variant.open ? 'is-open' : ''} ${error ? 'has-error' : ''}">
+        <div class="nx-variant-name">
+          <span style="background: var(${toColor(variant.name)})">${getAbb(variant.name)}</span>
+          <p>${variant.name}</p>
+          <div class="nx-range-wrapper">
+            <sl-input
+              type="range"
+              id="percent-${idx}"
+              name="percent"
+              min="0"
+              max="100"
+              step="5"
+              .value=${percent}
+              @input=${(e) => { this.handlePercentInput(e, idx); }}>
+            </sl-input>
+            <p class="${percent < 50 ? 'on-right' : ''}">${percent}%</p>
+          </div>
+          <button @click=${(e) => this.handleOpen(e, idx)} class="nx-exp-btn-more">Details</button>
+        </div>
+        <div class="nx-variant-details">
+          <hr/>
+          <sl-input
+            class="nx-space-bottom-200 quiet"
+            label="URL"
+            type="text"
+            name="url"
+            @input=${(e) => this.handleUrlInput(e, idx)}
+            .value=${variant.url || ''}
+            error=${error}
+            ?disabled=${isControl}
+            placeholder="${this._placeholder}">
+          </sl-input>
+          <div class="nx-variant-action-area ${isControl ? 'is-control' : ''}">
+            <button>Edit</button>
+            ${!isControl ? html`<button>Open</button>` : nothing}
+            <button>Preview</button>
+            ${!isControl ? html`<button @click=${() => this.handleDelete(idx)}>Delete</button>` : nothing}
+          </div>
+        </div>
+      </li>
     `;
   }
 
-  renderDate() {
+  renderVariants() {
     return html`
-      <div class="sl-fieldgroup sl-fieldgroup-two-up nx-space-bottom-300">
-        <div class="sl-inputfield nx-space-bottom-100">
-          <label for="nx-input-exp-name">Start date</label>
-          <input type="date" id="start" name="trip-start" value="2018-07-22" min="2018-01-01" max="2018-12-31" />
+      <div class="nx-variants-area">
+        <p class="nx-variants-heading">Variants</p>
+        <ul class="nx-variants-list">
+          ${this._details.variants?.map((variant, idx) => this.renderVariant(variant, idx))}
+        </ul>
+        <button class="nx-new-variant" @click=${this.handleNewVariant}>
+          <div class="nx-icon-wrapper">
+            <svg class="icon"><use href="#S2_Icon_Add_20_N"/></svg>
+          </div>
+          <span>New variant</span>
+        </button>
+      </p>
+    `;
+  }
+
+  renderDates() {
+    return html`
+      <div class="nx-date-area">
+        <div class="nx-grid-two-up nx-space-bottom-100">
+          <sl-input
+            label="Start date"
+            type="date"
+            id="start" name="start"
+            @change=${(e) => { this.handleDateChange(e, 'startDate'); }}
+            .value=${this._details.startDate}>
+          </sl-input>
+          <sl-input
+            label="End date"
+            type="date"
+            id="end"
+            name="end"
+            @change=${(e) => { this.handleDateChange(e, 'endDate'); }}
+            .value=${this._details.endDate}
+            min="2025-03-01">
+          </sl-input>
         </div>
-        <div class="sl-inputfield nx-space-bottom-100">
-          <label for="nx-input-exp-name">Start date</label>
-          <input type="date" id="start" name="trip-start" value="2018-07-22" min="2018-01-01" max="2018-12-31" />
+      </div>
+    `;
+  }
+
+  renderActions() {
+    return html`
+      <div class="nx-action-area">
+        <p class="nx-status nx-status-type-${this._status?.type || 'info'}">${this._status?.text}</p>
+        <div>
+          <sl-button class="primary outline">Save as draft</sl-button>
+          <sl-button @click=${this.handlePublish}>Publish</sl-button>
         </div>
       </div>
     `;
   }
 
   renderDetails() {
+    console.log(this._details.type, this._details.goal);
     return html`
-      <form class="nx-details">
-        <h2 class="spectrum-Heading spectrum-Heading--sizeS nx-space-bottom-200">Edit experiment</h2>
-        <hr class="sl-rule"></div>
-        <sl-input name="project-name" label="Name" placeholder="Enter experimentation name"></sl-input>
-
-
-        <div class="sl-fieldgroup sl-fieldgroup-two-up nx-space-bottom-300">
-          <sl-select name="type" label="Type" @change=${this.handleTypeChange}>
-            <option>A/B test</option>
-            <option>MAB</option>
-          </sl-select>
-
-          <sl-select name="opt-for" label="Optimizing For" @change=${this.handleOptForChange}>
-            <option>Overall conversion</option>
-            <option>Form submission</option>
-            <option>Engagement</option>
-          </sl-select>
+      <form>
+        <div class="nx-exp-details-header nx-space-bottom-200">
+          <button aria-label="Back" @click=${this.handleBack}>
+            <img class="nx-exp-back" src="${nxBase}/img/icons/S2_Icon_Undo_20_N.svg" />
+          </button>
+          <p class="sl-heading-m">Edit experiment</p>
         </div>
-        <hr class="sl-rule"></div>
+        <div class="nx-details-area">
+          <sl-input
+            @input=${this.handleNameInput}
+            .value=${this._details.name}
+            class="nx-space-bottom-100"
+            type="text"
+            label="Name"
+            name="exp-name"
+            error=${this._errors?.name || nothing}
+            placeholder="Enter experiment name"
+            class="nx-space-bottom-100"></sl-input>
+          <div class="nx-grid-two-up nx-space-bottom-300">
+            <sl-select
+              label="Type"
+              name="exp-type"
+              .value=${this._details.type}
+              @change=${(e) => this.handleSelectChange(e, 'type')}>
+                <option value="ab">A/B test</option>
+                <option value="mab">Multi-arm bandit</option>
+            </sl-select>
+            <sl-select
+              label="Goal"
+              name="exp-opt-for"
+              .value=${this._details.goal}
+              @change=${(e) => this.handleSelectChange(e, 'goal')}>
+                <option value="conversion">Overall conversion</option>
+                <option value="form-submit">Form submission</option>
+                <option value="engagement">Engagement</option>
+            </sl-select>
+          </div>
+        </div>
         ${this.renderVariants()}
-        ${this.renderDate()}
+        ${this.renderDates()}
+        ${this.renderActions()}
       </form>
     `;
+  }
+
+  renderReady() {
+    return this._details ? this.renderDetails() : this.renderNone();
   }
 
   render() {
     return html`
       ${this.renderHeader()}
-      <sp-theme system="spectrum-two" scale="medium" color="light">
-        ${this._loaded ? html`${this._details ? this.renderDetails() : this.renderNew()}` : nothing}
-      </sp-theme>
+      ${this._ims && this._connected ? this.renderReady() : nothing}
     `;
   }
 }
 
 customElements.define('nx-exp', NxExp);
 
-export default function init() {
-  document.body.style = 'max-width: 374px; margin: 0 auto; background: #000';
-  const exp = document.createElement('nx-exp');
-  document.body.append(exp);
+export default async function init() {
+  await loadStyle(`${nxBase}/public/sl/styles.css`);
+  const expCmp = document.createElement('nx-exp');
+  document.body.append(expCmp);
+
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.ready) [expCmp.port] = e.ports;
+  });
 }
